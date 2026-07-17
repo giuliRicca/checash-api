@@ -6,6 +6,7 @@ from sqlalchemy import delete, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.category import Category
+from app.models.enums import TransactionType
 from app.models.transaction import Transaction
 
 
@@ -52,6 +53,22 @@ async def get_miscellaneous_category(session: AsyncSession) -> Category:
     return category
 
 
+async def get_fallback_category(
+    session: AsyncSession, transaction_type: TransactionType
+) -> Category:
+    slug = (
+        "miscellaneous" if transaction_type == TransactionType.EXPENSE else "uncategorized-income"
+    )
+    category = await session.scalar(
+        select(Category).where(Category.user_id.is_(None), Category.slug == slug)
+    )
+    if category is None:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Fallback category missing"
+        )
+    return category
+
+
 async def list_categories(session: AsyncSession, user_id: UUID) -> list[Category]:
     result = await session.scalars(
         select(Category)
@@ -61,10 +78,14 @@ async def list_categories(session: AsyncSession, user_id: UUID) -> list[Category
     return list(result)
 
 
-async def create_category(session: AsyncSession, user_id: UUID, name: str) -> Category:
+async def create_category(
+    session: AsyncSession, user_id: UUID, name: str, transaction_type: TransactionType
+) -> Category:
     slug = slugify(name)
     await ensure_visible_category_slug_available(session, user_id, slug)
-    category = Category(user_id=user_id, name=name.strip(), slug=slug, is_system=False)
+    category = Category(
+        user_id=user_id, name=name.strip(), slug=slug, type=transaction_type, is_system=False
+    )
     session.add(category)
     await session.commit()
     await session.refresh(category)

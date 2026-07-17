@@ -29,7 +29,7 @@ async def create_my_category(
     session: SessionDep,
     current_user: CurrentUserDep,
 ) -> CategoryRead:
-    category = await create_category(session, current_user.id, payload.name)
+    category = await create_category(session, current_user.id, payload.name, payload.type)
     return CategoryRead.model_validate(category, from_attributes=True)
 
 

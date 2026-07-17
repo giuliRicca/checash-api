@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -5,11 +7,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
-from app.models.enums import TransactionType
+from app.models.enums import Currency, RateType, TransactionType
 from app.models.transaction import Transaction
 from app.schemas.common import quantize_money
 from app.services.accounts import ensure_account_active, get_owned_account
 from app.services.categories import get_visible_category
+from app.services.exchange_rates import get_exchange_rate
+
+
+def get_current_month_window() -> tuple[datetime, datetime]:
+    now = datetime.now(UTC)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if month_start.month == 12:
+        month_end = month_start.replace(year=month_start.year + 1, month=1)
+    else:
+        month_end = month_start.replace(month=month_start.month + 1)
+    return month_start, month_end
 
 
 def apply_transaction_effect(account: Account, amount, transaction_type: TransactionType) -> None:
@@ -30,6 +43,11 @@ async def create_transaction(session: AsyncSession, user_id: UUID, data) -> Tran
     account = await get_owned_account(session, user_id, data.account_id)
     ensure_account_active(account)
     category = await get_visible_category(session, user_id, data.category_id)
+    if category.type != data.type:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Category type must match transaction type",
+        )
     amount = quantize_money(data.amount)
     transaction = Transaction(
         user_id=user_id,
@@ -46,6 +64,55 @@ async def create_transaction(session: AsyncSession, user_id: UUID, data) -> Tran
     await session.commit()
     await session.refresh(transaction)
     return transaction
+
+
+async def calculate_month_summary(session: AsyncSession, user_id: UUID) -> dict:
+    month_start, month_end = get_current_month_window()
+    rows = list(
+        await session.execute(
+            select(Transaction, Account)
+            .join(Account, Account.id == Transaction.account_id)
+            .where(
+                Transaction.user_id == user_id,
+                Transaction.created_at >= month_start,
+                Transaction.created_at < month_end,
+            )
+        )
+    )
+
+    rates: dict[RateType, Decimal] = {}
+    totals = {
+        "income_ars": Decimal("0.00"),
+        "income_usd": Decimal("0.00"),
+        "expense_ars": Decimal("0.00"),
+        "expense_usd": Decimal("0.00"),
+    }
+
+    for transaction, account in rows:
+        rate = rates.get(account.rate_type)
+        if rate is None:
+            rate = await get_exchange_rate(session, account.rate_type)
+            rates[account.rate_type] = rate
+
+        if transaction.currency == Currency.ARS:
+            amount_ars = transaction.amount
+            amount_usd = transaction.amount / rate
+        else:
+            amount_usd = transaction.amount
+            amount_ars = transaction.amount * rate
+
+        prefix = "income" if transaction.type == TransactionType.INCOME else "expense"
+        totals[f"{prefix}_ars"] += amount_ars
+        totals[f"{prefix}_usd"] += amount_usd
+
+    return {
+        "month_start": month_start,
+        "month_end": month_end,
+        "income_ars": quantize_money(totals["income_ars"]),
+        "income_usd": quantize_money(totals["income_usd"]),
+        "expense_ars": quantize_money(totals["expense_ars"]),
+        "expense_usd": quantize_money(totals["expense_usd"]),
+    }
 
 
 async def get_owned_transaction(
@@ -74,6 +141,11 @@ async def update_transaction(
     new_account = await get_owned_account(session, user_id, account_id)
     ensure_account_active(new_account)
     category = await get_visible_category(session, user_id, category_id)
+    if category.type != transaction_type:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Category type must match transaction type",
+        )
     apply_transaction_effect(new_account, amount, transaction_type)
 
     transaction.account_id = new_account.id

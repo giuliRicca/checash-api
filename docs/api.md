@@ -24,13 +24,15 @@ Authentication: protected endpoints require `Authorization: Bearer <access_token
 ## Categories
 - `GET /api/categories`
 - `POST /api/categories`
-  - Body: `name`.
+  - Body: `name`, `type` (`expense` or `income`). Category type is immutable after creation.
 - `PATCH /api/categories/{category_id}`
   - Body: `name`.
 - `DELETE /api/categories/{category_id}`
   - Deletes only user-owned unused categories.
 
-System categories are global, immutable, and visible to all users.
+System categories are global, immutable, and visible to all users. Transaction categories must
+match the transaction type; `Miscellaneous` is the expense fallback and `Uncategorized income`
+is the income fallback.
 
 ## Accounts
 - `POST /api/accounts`
@@ -45,17 +47,27 @@ System categories are global, immutable, and visible to all users.
   - Returns symmetric totals in ARS and USD.
 
 Account currency and balance are not directly editable after creation.
+Supported `rate_type` values: `oficial`, `blue`, `mep`, `tarjeta`, `crypto`. Rates use dolarapi
+`casa` values `oficial`, `blue`, `bolsa`, `tarjeta`, and `cripto`, respectively.
 
 ## Transactions
 - `POST /api/transactions`
-  - Creates expense or income.
-  - Body: `account_id`, `category_id`, `amount`, `type`, optional `description`.
+- Creates expense or income.
+- Body: `account_id`, `category_id`, `amount`, `type`, optional `description`.
+  - The selected category must have the same type as the transaction.
 - `PATCH /api/transactions/{transaction_id}`
   - Updates transaction and recalculates balance atomically.
 - `DELETE /api/transactions/{transaction_id}`
   - Deletes transaction and reverses balance effect atomically.
 
 Transaction `type` values: `expense`, `income`.
+
+### Month Summary
+- `GET /api/transactions/month-summary`
+- Returns `month_start`, `month_end`, `income_ars`, `income_usd`, `expense_ars`, `expense_usd`.
+- Window is current UTC calendar month. Transfers are excluded.
+- Conversion uses each transaction account's current `rate_type`, rounds money half-up to two decimals,
+  and follows normal exchange-rate cache fallback. Missing cached/provider rate returns 503.
 
 ## Transfers
 - `POST /api/transfers`

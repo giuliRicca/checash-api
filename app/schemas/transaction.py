@@ -34,3 +34,12 @@ class TransactionRead(BaseModel):
     type: TransactionType
     description: str | None
     created_at: datetime
+
+
+class TransactionMonthSummaryRead(BaseModel):
+    month_start: datetime
+    month_end: datetime
+    income_ars: Decimal
+    income_usd: Decimal
+    expense_ars: Decimal
+    expense_usd: Decimal

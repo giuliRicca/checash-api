@@ -57,6 +57,10 @@
 - `users.default_category_id` references categories.
 - Transactions store `category_id` and `category_name_snapshot`.
 - Delete category blocked if used.
+- Category type is immutable and must match transaction type.
+- Migration classifies existing user categories as `expense` unless only income transactions use it.
+  This is acceptable only while project databases remain disposable; do not use this migration policy
+  after production data exists.
 
 ## Transactions
 - Transactions table stores only expense/income.
@@ -81,7 +85,9 @@
 
 ## Exchange Rates
 - Provider: `dolarapi.com`.
-- Rate types: blue, mep, tarjeta.
+- Rate types: oficial, blue, mep, tarjeta, crypto.
+- Provider `casa` mapping: oficial -> `oficial`, blue -> `blue`, mep -> `bolsa`, tarjeta ->
+  `tarjeta`, crypto -> `cripto`.
 - Use midpoint `(compra + venta) / 2`.
 - Persist cache in `exchange_rates`.
 - Refresh on demand when older than 1 hour.
@@ -94,6 +100,13 @@
 - Total ARS = ARS accounts + USD accounts * account rate.
 - Exclude archived accounts by default.
 - Support `include_archived=true`.
+
+## Monthly Transaction Summary
+- `GET /api/transactions/month-summary` uses current UTC calendar-month window.
+- Totals include transactions only, not transfers.
+- ARS/USD conversion uses each transaction account's current rate type, not historical rate.
+- Money totals round to two decimal places with `ROUND_HALF_UP`.
+- Rate cache/provider fallback rules apply; missing rate data returns 503.
 
 ## Chat Pipeline
 - Parse-message never writes to DB.

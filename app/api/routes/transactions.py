@@ -4,8 +4,18 @@ from fastapi import APIRouter, Response, status
 
 from app.core.security import CurrentUserDep
 from app.db.session import SessionDep
-from app.schemas.transaction import TransactionCreate, TransactionRead, TransactionUpdate
-from app.services.transactions import create_transaction, delete_transaction, update_transaction
+from app.schemas.transaction import (
+    TransactionCreate,
+    TransactionMonthSummaryRead,
+    TransactionRead,
+    TransactionUpdate,
+)
+from app.services.transactions import (
+    calculate_month_summary,
+    create_transaction,
+    delete_transaction,
+    update_transaction,
+)
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -18,6 +28,16 @@ async def create_my_transaction(
 ) -> TransactionRead:
     transaction = await create_transaction(session, current_user.id, payload)
     return TransactionRead.model_validate(transaction, from_attributes=True)
+
+
+@router.get("/month-summary")
+async def get_my_month_summary(
+    session: SessionDep,
+    current_user: CurrentUserDep,
+) -> TransactionMonthSummaryRead:
+    return TransactionMonthSummaryRead.model_validate(
+        await calculate_month_summary(session, current_user.id)
+    )
 
 
 @router.patch("/{transaction_id}")

@@ -12,7 +12,7 @@ from app.schemas.chat import ChatDraft, ExchangeDetailsDraft
 from app.schemas.transaction import TransactionCreate
 from app.schemas.transfer import TransferCreate
 from app.services.accounts import resolve_account_by_keyword
-from app.services.categories import get_visible_category
+from app.services.categories import get_fallback_category
 from app.services.transactions import create_transaction
 from app.services.transfers import create_transfer
 
@@ -38,7 +38,7 @@ async def parse_message(session: AsyncSession, user: User, message: str) -> Chat
         currency = account.currency
         currency_guessed = True
 
-    category, category_guessed = await resolve_category(session, user, lowered)
+    category, category_guessed = await resolve_category(session, user, lowered, transaction_type)
     destination_keyword = extract_keyword(lowered, ["a", "hacia"])
     destination_account = None
     ambiguous_destination = False
@@ -103,8 +103,10 @@ def extract_keyword(message: str, markers: list[str]) -> str | None:
 
 
 async def resolve_category(
-    session: AsyncSession, user: User, message: str
+    session: AsyncSession, user: User, message: str, transaction_type: TransactionType | str
 ) -> tuple[Category | None, bool]:
+    if transaction_type == "transfer":
+        return None, False
     categories = list(
         await session.scalars(
             select(Category).where(or_(Category.user_id.is_(None), Category.user_id == user.id))
@@ -113,13 +115,18 @@ async def resolve_category(
     matches = [
         category
         for category in categories
-        if category.slug in message or category.name.lower() in message
+        if category.type == transaction_type
+        and (category.slug in message or category.name.lower() in message)
     ]
     if len(matches) == 1:
         return matches[0], False
-    if user.default_category_id is None:
-        return None, True
-    return await get_visible_category(session, user.id, user.default_category_id), True
+    if user.default_category_id is not None:
+        default_category = next(
+            (category for category in categories if category.id == user.default_category_id), None
+        )
+        if default_category is not None and default_category.type == transaction_type:
+            return default_category, True
+    return await get_fallback_category(session, transaction_type), True
 
 
 async def confirm_draft(session: AsyncSession, user: User, draft: ChatDraft):

@@ -11,9 +11,11 @@ class Currency(StrEnum):
 
 
 class RateType(StrEnum):
+    OFICIAL = "oficial"
     BLUE = "blue"
     MEP = "mep"
     TARJETA = "tarjeta"
+    CRYPTO = "crypto"
 
 
 class TransactionType(StrEnum):

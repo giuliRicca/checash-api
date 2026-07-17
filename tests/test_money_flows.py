@@ -1,6 +1,6 @@
 import httpx
 
-from tests.helpers import auth_headers, create_account, get_misc_category_id
+from tests.helpers import auth_headers, create_account, get_category_id, get_misc_category_id
 
 
 async def test_transaction_update_delete_balance_effects(client: httpx.AsyncClient) -> None:
@@ -96,3 +96,23 @@ async def test_chat_parse_does_not_write_and_confirm_writes(client: httpx.AsyncC
     assert confirmed.status_code == 200, confirmed.text
     balance_after_confirm = await client.get(f"/api/accounts/{account['id']}", headers=headers)
     assert balance_after_confirm.json()["balance"] == "150.00"
+
+
+async def test_chat_income_uses_uncategorized_income_fallback(client: httpx.AsyncClient) -> None:
+    headers = await auth_headers(client)
+    account = await create_account(
+        client, headers, name="Income ARS", currency="ARS", opening_balance="0.00"
+    )
+    uncategorized_income_id = await get_category_id(client, headers, "uncategorized-income")
+    await client.patch(
+        "/api/users/me/preferences",
+        headers=headers,
+        json={"default_account_id": account["id"]},
+    )
+
+    parsed = await client.post(
+        "/api/chat/parse-message", headers=headers, json={"message": "Cobre 100"}
+    )
+    assert parsed.status_code == 200, parsed.text
+    assert parsed.json()["transaction_type"] == "income"
+    assert parsed.json()["category_id"] == uncategorized_income_id

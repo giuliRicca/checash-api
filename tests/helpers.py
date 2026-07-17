@@ -14,9 +14,13 @@ async def auth_headers(client: httpx.AsyncClient) -> dict[str, str]:
 
 
 async def get_misc_category_id(client: httpx.AsyncClient, headers: dict[str, str]) -> str:
+    return await get_category_id(client, headers, "miscellaneous")
+
+
+async def get_category_id(client: httpx.AsyncClient, headers: dict[str, str], slug: str) -> str:
     response = await client.get("/api/categories", headers=headers)
     assert response.status_code == 200, response.text
-    return next(item["id"] for item in response.json() if item["slug"] == "miscellaneous")
+    return next(item["id"] for item in response.json() if item["slug"] == slug)
 
 
 async def create_account(
@@ -26,6 +30,7 @@ async def create_account(
     name: str,
     currency: str,
     opening_balance: str,
+    rate_type: str = "blue",
 ) -> dict:
     response = await client.post(
         "/api/accounts",
@@ -34,7 +39,7 @@ async def create_account(
             "name": name,
             "currency": currency,
             "opening_balance": opening_balance,
-            "rate_type": "blue",
+            "rate_type": rate_type,
         },
     )
     assert response.status_code == 200, response.text

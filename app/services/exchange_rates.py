@@ -12,10 +12,12 @@ from app.models.enums import RateProvider, RateType
 from app.models.exchange_rate import ExchangeRate
 from app.schemas.common import quantize_rate
 
-RATE_PATHS = {
-    RateType.BLUE: "dolares/blue",
-    RateType.MEP: "dolares/bolsa",
-    RateType.TARJETA: "dolares/tarjeta",
+RATE_CASAS = {
+    RateType.OFICIAL: "oficial",
+    RateType.BLUE: "blue",
+    RateType.MEP: "bolsa",
+    RateType.TARJETA: "tarjeta",
+    RateType.CRYPTO: "cripto",
 }
 
 
@@ -26,7 +28,7 @@ async def get_exchange_rate(session: AsyncSession, rate_type: RateType) -> Decim
 
     try:
         return await fetch_and_cache_rate(session, rate_type)
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
         if latest is not None:
             return latest.value
         raise HTTPException(
@@ -51,19 +53,23 @@ def is_stale(fetched_at: datetime) -> bool:
 
 async def fetch_and_cache_rate(session: AsyncSession, rate_type: RateType) -> Decimal:
     settings = get_settings()
-    path = RATE_PATHS[rate_type]
+    casa = RATE_CASAS[rate_type]
     async with httpx.AsyncClient(
         base_url=settings.exchange_rate_provider_base_url, timeout=10
     ) as client:
-        response = await client.get(path)
+        response = await client.get("dolares")
         response.raise_for_status()
         payload = response.json()
 
-    compra = Decimal(str(payload["compra"]))
-    venta = Decimal(str(payload["venta"]))
+    rate_payload = next((item for item in payload if item.get("casa") == casa), None)
+    if rate_payload is None:
+        raise ValueError("Exchange rate provider response missing requested rate type")
+
+    compra = Decimal(str(rate_payload["compra"]))
+    venta = Decimal(str(rate_payload["venta"]))
     value = quantize_rate((compra + venta) / Decimal("2"))
     fetched_at = datetime.now(UTC)
-    effective_date = parse_effective_date(payload.get("fechaActualizacion"), fetched_at)
+    effective_date = parse_effective_date(rate_payload.get("fechaActualizacion"), fetched_at)
     stmt = insert(ExchangeRate).values(
         provider=RateProvider.DOLARAPI,
         rate_type=rate_type,
