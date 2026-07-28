@@ -21,5 +21,6 @@ class TokenResponse(BaseModel):
 class UserRead(BaseModel):
     id: UUID
     email: EmailStr
+    display_name: str | None
     default_account_id: UUID | None
     default_category_id: UUID | None

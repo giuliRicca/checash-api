@@ -28,10 +28,11 @@ rate_provider_enum = postgresql.ENUM("dolarapi", name="rate_provider", create_ty
 
 SYSTEM_CATEGORIES = [
     ("groceries", "Groceries"),
-    ("transport", "Transport"),
+    ("personal", "Personal"),
     ("utilities", "Utilities"),
     ("rent", "Rent"),
     ("health", "Health"),
+    ("eating out", "Eating Out"),
     ("entertainment", "Entertainment"),
     ("salary", "Salary"),
     ("miscellaneous", "Miscellaneous"),

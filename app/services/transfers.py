@@ -11,6 +11,7 @@ from app.models.transfer import Transfer
 from app.schemas.common import quantize_money, quantize_rate
 from app.services.accounts import ensure_account_active, get_owned_account
 from app.services.exchange_rates import get_exchange_rate
+from app.services.net_worth_history import capture_net_worth_snapshot
 
 
 async def calculate_destination_amount(
@@ -69,6 +70,7 @@ async def create_transfer(session: AsyncSession, user_id: UUID, data) -> Transfe
     )
     apply_transfer_effect(source, destination, transfer)
     session.add(transfer)
+    await capture_net_worth_snapshot(session, user_id)
     await session.commit()
     await session.refresh(transfer)
     return transfer
@@ -118,6 +120,7 @@ async def update_transfer(
     if "description" in data.model_fields_set:
         transfer.description = data.description
     apply_transfer_effect(source, destination, transfer)
+    await capture_net_worth_snapshot(session, user_id)
     await session.commit()
     await session.refresh(transfer)
     return transfer
@@ -129,4 +132,5 @@ async def delete_transfer(session: AsyncSession, user_id: UUID, transfer_id: UUI
     destination = await get_owned_account(session, user_id, transfer.destination_account_id)
     reverse_transfer_effect(source, destination, transfer)
     await session.delete(transfer)
+    await capture_net_worth_snapshot(session, user_id)
     await session.commit()

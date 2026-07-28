@@ -1,4 +1,5 @@
 import re
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import HTTPException, status
@@ -70,6 +71,7 @@ async def parse_message(session: AsyncSession, user: User, message: str) -> Chat
         or account_guessed
         or category_guessed
         or ambiguous_destination,
+        occurred_at=datetime.now(UTC),
     )
 
 
@@ -164,7 +166,9 @@ async def confirm_draft(session: AsyncSession, user: User, draft: ChatDraft):
             account_id=draft.account_id,
             category_id=draft.category_id,
             amount=draft.amount,
+            currency=draft.currency,
             type=TransactionType(draft.transaction_type),
             description=draft.description,
+            occurred_at=draft.occurred_at,
         ),
     )

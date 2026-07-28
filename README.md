@@ -11,7 +11,8 @@ FastAPI backend for Che Cash.
 pip install -e ".[dev]"
 ```
 
-3. Copy `.env.example` to `.env` and set local PostgreSQL URLs and JWT secret.
+3. Copy `.env.example` to `.env`. Set `DATABASE_URL` and `JWT_SECRET_KEY` (minimum 16
+   characters). Set `TEST_DATABASE_URL` only when running tests.
 4. Run migrations:
 
 ```powershell
@@ -23,3 +24,13 @@ alembic upgrade head
 ```powershell
 fastapi dev app/main.py
 ```
+
+## Tests
+
+Set `TEST_DATABASE_URL` to a disposable PostgreSQL database, then run:
+
+```powershell
+pytest
+```
+
+The test fixture downgrades that database to `base` and upgrades it to `head` before tests.

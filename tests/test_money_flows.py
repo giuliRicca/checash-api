@@ -37,6 +37,119 @@ async def test_transaction_update_delete_balance_effects(client: httpx.AsyncClie
     assert account_after_delete.json()["balance"] == "100.00"
 
 
+async def test_balance_adjustment_changes_balance_but_not_month_summary(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await auth_headers(client)
+    account = await create_account(
+        client, headers, name="Cash", currency="ARS", opening_balance="100.00"
+    )
+
+    adjustment = await client.post(
+        f"/api/accounts/{account['id']}/adjustments",
+        headers=headers,
+        json={"target_balance": "135.50", "description": "Cash count"},
+    )
+    assert adjustment.status_code == 201, adjustment.text
+    assert adjustment.json()["amount"] == "35.50"
+    assert adjustment.json()["type"] == "income"
+    assert adjustment.json()["is_adjustment"] is True
+
+    account_after_adjustment = await client.get(f"/api/accounts/{account['id']}", headers=headers)
+    assert account_after_adjustment.json()["balance"] == "135.50"
+
+    summary = await client.get("/api/transactions/month-summary", headers=headers)
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["income_ars"] == "0.00"
+    assert summary.json()["expense_ars"] == "0.00"
+
+    changed = await client.patch(
+        f"/api/transactions/{adjustment.json()['id']}", headers=headers, json={"amount": "40.00"}
+    )
+    assert changed.status_code == 422, changed.text
+    deleted = await client.delete(f"/api/transactions/{adjustment.json()['id']}", headers=headers)
+    assert deleted.status_code == 422, deleted.text
+
+    no_change = await client.post(
+        f"/api/accounts/{account['id']}/adjustments",
+        headers=headers,
+        json={"target_balance": "135.50"},
+    )
+    assert no_change.status_code == 422, no_change.text
+
+
+async def test_balance_adjustment_categories_cannot_be_used_normally(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await auth_headers(client)
+    account = await create_account(
+        client, headers, name="Cash", currency="ARS", opening_balance="100.00"
+    )
+    category_id = await get_category_id(client, headers, "balance-adjustment-expense")
+
+    transaction = await client.post(
+        "/api/transactions",
+        headers=headers,
+        json={
+            "account_id": account["id"],
+            "category_id": category_id,
+            "amount": "10.00",
+            "type": "expense",
+        },
+    )
+    assert transaction.status_code == 422, transaction.text
+
+
+async def test_delete_account_removes_history_and_reverses_linked_transfers(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await auth_headers(client)
+    category_id = await get_misc_category_id(client, headers)
+    source = await create_account(
+        client, headers, name="Source", currency="ARS", opening_balance="100.00"
+    )
+    destination = await create_account(
+        client, headers, name="Destination", currency="ARS", opening_balance="20.00"
+    )
+    transaction = await client.post(
+        "/api/transactions",
+        headers=headers,
+        json={
+            "account_id": source["id"],
+            "category_id": category_id,
+            "amount": "10.00",
+            "type": "expense",
+        },
+    )
+    assert transaction.status_code == 201, transaction.text
+    transfer = await client.post(
+        "/api/transfers",
+        headers=headers,
+        json={
+            "source_account_id": source["id"],
+            "destination_account_id": destination["id"],
+            "source_amount": "30.00",
+        },
+    )
+    assert transfer.status_code == 201, transfer.text
+    preferences = await client.patch(
+        "/api/users/me/preferences",
+        headers=headers,
+        json={"default_account_id": source["id"]},
+    )
+    assert preferences.status_code == 200, preferences.text
+
+    deleted = await client.delete(f"/api/accounts/{source['id']}", headers=headers)
+    assert deleted.status_code == 204, deleted.text
+
+    missing = await client.get(f"/api/accounts/{source['id']}", headers=headers)
+    assert missing.status_code == 404, missing.text
+    destination_after = await client.get(f"/api/accounts/{destination['id']}", headers=headers)
+    assert destination_after.json()["balance"] == "20.00"
+    me = await client.get("/api/auth/me", headers=headers)
+    assert me.json()["default_account_id"] is None
+
+
 async def test_cross_currency_transfer_with_manual_rate(client: httpx.AsyncClient) -> None:
     headers = await auth_headers(client)
     usd = await create_account(

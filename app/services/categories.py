@@ -9,6 +9,11 @@ from app.models.category import Category
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction
 
+BALANCE_ADJUSTMENT_SLUGS = {
+    TransactionType.EXPENSE: "balance-adjustment-expense",
+    TransactionType.INCOME: "balance-adjustment-income",
+}
+
 
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
@@ -65,6 +70,26 @@ async def get_fallback_category(
     if category is None:
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Fallback category missing"
+        )
+    return category
+
+
+def is_balance_adjustment_category(category: Category) -> bool:
+    return category.user_id is None and category.slug in BALANCE_ADJUSTMENT_SLUGS.values()
+
+
+async def get_balance_adjustment_category(
+    session: AsyncSession, transaction_type: TransactionType
+) -> Category:
+    category = await session.scalar(
+        select(Category).where(
+            Category.user_id.is_(None),
+            Category.slug == BALANCE_ADJUSTMENT_SLUGS[transaction_type],
+        )
+    )
+    if category is None:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Balance adjustment category missing"
         )
     return category
 

@@ -26,6 +26,42 @@ async def test_register_login_and_me(client: httpx.AsyncClient) -> None:
     assert me.json()["default_category_id"] is not None
 
 
+async def test_update_profile_and_change_password(client: httpx.AsyncClient) -> None:
+    email = f"user-{uuid4()}@example.com"
+    register = await client.post(
+        "/api/auth/register", json={"email": email, "password": "password123"}
+    )
+    headers = {"Authorization": f"Bearer {register.json()['access_token']}"}
+
+    profile = await client.patch(
+        "/api/users/me",
+        headers=headers,
+        json={"email": email.upper(), "display_name": "  Cash User  "},
+    )
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["email"] == email
+    assert profile.json()["display_name"] == "Cash User"
+
+    rejected = await client.post(
+        "/api/users/me/password",
+        headers=headers,
+        json={"current_password": "wrong-password", "new_password": "new-password123"},
+    )
+    assert rejected.status_code == 400, rejected.text
+
+    changed = await client.post(
+        "/api/users/me/password",
+        headers=headers,
+        json={"current_password": "password123", "new_password": "new-password123"},
+    )
+    assert changed.status_code == 204, changed.text
+
+    login = await client.post(
+        "/api/auth/login", json={"email": email, "password": "new-password123"}
+    )
+    assert login.status_code == 200, login.text
+
+
 async def test_category_slug_collision_and_delete_if_used(client: httpx.AsyncClient) -> None:
     headers = await auth_headers(client)
     collision = await client.post(

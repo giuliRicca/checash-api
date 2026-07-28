@@ -9,7 +9,16 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
-from app.models import account, category, exchange_rate, transaction, transfer, user  # noqa: F401
+from app.models import (  # noqa: F401
+    account,
+    budget,
+    category,
+    exchange_rate,
+    net_worth_snapshot,
+    transaction,
+    transfer,
+    user,
+)
 
 config = context.config
 

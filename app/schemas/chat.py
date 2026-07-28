@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -29,6 +30,7 @@ class ChatDraft(BaseModel):
     is_exchange: bool
     exchange_details: ExchangeDetailsDraft | None
     needs_review: bool
+    occurred_at: datetime | None = None
 
 
 class ChatConfirmRequest(BaseModel):

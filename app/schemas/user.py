@@ -1,6 +1,16 @@
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
+
+
+class UserProfileUpdate(BaseModel):
+    email: EmailStr
+    display_name: str | None = Field(default=None, max_length=120)
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
 
 
 class UserPreferencesUpdate(BaseModel):
