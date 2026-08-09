@@ -1,0 +1,40 @@
+name: Backend CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: checash_test
+          POSTGRES_USER: checash
+          POSTGRES_PASSWORD: checash
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U checash -d checash_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://checash:checash@localhost:5432/checash_test
+      TEST_DATABASE_URL: postgresql+asyncpg://checash:checash@localhost:5432/checash_test
+      JWT_SECRET_KEY: ci-only-secret-that-is-at-least-32-bytes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.7.13"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen --all-extras
+      - run: uv run ruff check .
+      - run: uv run pytest
