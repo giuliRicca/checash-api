@@ -3,11 +3,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx
-from app.models.chat_draft import ChatDraftSession
 from sqlalchemy import select
 from sqlalchemy import update as sa_update
 
 from app.db.session import AsyncSessionMaker
+from app.models.chat_draft import ChatDraftSession
 from tests.helpers import auth_headers, create_account, get_misc_category_id
 
 
