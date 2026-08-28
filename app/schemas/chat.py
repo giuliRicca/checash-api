@@ -1,10 +1,11 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import Currency, TransactionType
+from app.models.enums import Currency
 
 
 class ParseMessageRequest(BaseModel):
@@ -19,19 +20,26 @@ class ExchangeDetailsDraft(BaseModel):
 
 
 class ChatDraft(BaseModel):
-    amount: Decimal
+    amount: Decimal = Field(gt=0)
     currency: Currency
-    account_keyword: str | None
-    account_id: UUID | None
-    category_id: UUID | None
-    category_name: str | None
-    transaction_type: TransactionType | str
-    description: str | None
-    is_exchange: bool
-    exchange_details: ExchangeDetailsDraft | None
-    needs_review: bool
+    account_keyword: str | None = None
+    account_id: UUID | None = None
+    category_id: UUID | None = None
+    category_name: str | None = Field(default=None, max_length=120)
+    transaction_type: Literal["expense", "income", "transfer"]
+    description: str | None = Field(default=None, max_length=500)
+    is_exchange: bool = False
+    exchange_details: ExchangeDetailsDraft | None = None
+    needs_review: bool = False
     occurred_at: datetime | None = None
 
 
+class ChatDraftEnvelope(BaseModel):
+    id: UUID
+    expires_at: datetime
+    draft: ChatDraft
+
+
 class ChatConfirmRequest(BaseModel):
+    draft_id: UUID
     draft: ChatDraft

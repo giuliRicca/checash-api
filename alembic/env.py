@@ -13,6 +13,7 @@ from app.models import (  # noqa: F401
     account,
     budget,
     category,
+    chat_draft,
     exchange_rate,
     net_worth_snapshot,
     transaction,

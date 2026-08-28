@@ -59,7 +59,7 @@ def calculate_account_amount(
 
 
 async def create_transaction(session: AsyncSession, user_id: UUID, data) -> Transaction:
-    account = await get_owned_account(session, user_id, data.account_id)
+    account = await get_owned_account(session, user_id, data.account_id, for_update=True)
     ensure_account_active(account)
     category = await get_visible_category(session, user_id, data.category_id)
     if is_balance_adjustment_category(category):

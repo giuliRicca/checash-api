@@ -29,6 +29,24 @@ async def get_owned_account(
     return account
 
 
+async def get_owned_accounts_locked(
+    session: AsyncSession, user_id: UUID, account_ids: list[UUID]
+) -> dict[UUID, Account]:
+    """Lock owned accounts FOR UPDATE in deterministic id order to avoid deadlocks."""
+    unique_ids = sorted(set(account_ids))
+    accounts = list(
+        await session.scalars(
+            select(Account)
+            .where(Account.user_id == user_id, Account.id.in_(unique_ids))
+            .order_by(Account.id)
+            .with_for_update()
+        )
+    )
+    if len(accounts) != len(unique_ids):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Account not found")
+    return {account.id: account for account in accounts}
+
+
 def ensure_account_active(account: Account) -> None:
     if account.archived_at is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="Archived account cannot be used")

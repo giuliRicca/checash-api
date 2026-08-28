@@ -198,17 +198,25 @@ async def test_chat_parse_does_not_write_and_confirm_writes(client: httpx.AsyncC
         json={"message": "Gaste 50 en el super"},
     )
     assert parsed.status_code == 200, parsed.text
+    parsed_body = parsed.json()
     balance_after_parse = await client.get(f"/api/accounts/{account['id']}", headers=headers)
     assert balance_after_parse.json()["balance"] == "200.00"
 
     confirmed = await client.post(
         "/api/chat/confirm",
         headers=headers,
-        json={"draft": parsed.json()},
+        json={"draft_id": parsed_body["id"], "draft": parsed_body["draft"]},
     )
     assert confirmed.status_code == 200, confirmed.text
     balance_after_confirm = await client.get(f"/api/accounts/{account['id']}", headers=headers)
     assert balance_after_confirm.json()["balance"] == "150.00"
+
+    replay = await client.post(
+        "/api/chat/confirm",
+        headers=headers,
+        json={"draft_id": parsed_body["id"], "draft": parsed_body["draft"]},
+    )
+    assert replay.status_code == 409, replay.text
 
 
 async def test_chat_income_uses_uncategorized_income_fallback(client: httpx.AsyncClient) -> None:
@@ -227,5 +235,6 @@ async def test_chat_income_uses_uncategorized_income_fallback(client: httpx.Asyn
         "/api/chat/parse-message", headers=headers, json={"message": "Cobre 100"}
     )
     assert parsed.status_code == 200, parsed.text
-    assert parsed.json()["transaction_type"] == "income"
-    assert parsed.json()["category_id"] == uncategorized_income_id
+    parsed_draft = parsed.json()["draft"]
+    assert parsed_draft["transaction_type"] == "income"
+    assert parsed_draft["category_id"] == uncategorized_income_id

@@ -206,10 +206,13 @@ async def test_chat_confirmation_keeps_draft_currency(client: httpx.AsyncClient)
         "/api/chat/parse-message", headers=headers, json={"message": "Gaste 10 usd"}
     )
     assert parsed.status_code == 200, parsed.text
-    assert parsed.json()["currency"] == "USD"
+    parsed_body = parsed.json()
+    assert parsed_body["draft"]["currency"] == "USD"
 
     confirmed = await client.post(
-        "/api/chat/confirm", headers=headers, json={"draft": parsed.json()}
+        "/api/chat/confirm",
+        headers=headers,
+        json={"draft_id": parsed_body["id"], "draft": parsed_body["draft"]},
     )
 
     assert confirmed.status_code == 200, confirmed.text

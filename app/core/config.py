@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     exchange_rate_ttl_seconds: int = 60 * 60
     database_pool_size: int = Field(default=3, ge=1)
     database_max_overflow: int = Field(default=2, ge=0)
+    chat_draft_ttl_hours: int = Field(default=24, ge=1)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

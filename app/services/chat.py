@@ -1,12 +1,15 @@
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.category import Category
+from app.models.chat_draft import ChatDraftSession, DraftStatus
 from app.models.enums import Currency, TransactionType
 from app.models.user import User
 from app.schemas.chat import ChatDraft, ExchangeDetailsDraft
@@ -18,16 +21,14 @@ from app.services.transactions import create_transaction
 from app.services.transfers import create_transfer
 
 
-async def parse_message(session: AsyncSession, user: User, message: str) -> ChatDraft:
+async def parse_message(session: AsyncSession, user: User, message: str) -> ChatDraftSession:
     lowered = message.strip().lower()
     amount = extract_amount(lowered)
     if amount is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not parse amount")
 
     is_exchange = any(word in lowered for word in ["transfer", "transferi", "cambie", "cambié"])
-    transaction_type: TransactionType | str = (
-        "transfer" if is_exchange else infer_transaction_type(lowered)
-    )
+    transaction_type = "transfer" if is_exchange else infer_transaction_type(lowered)
     currency, currency_guessed = infer_currency(lowered)
     account_keyword = extract_keyword(lowered, ["desde", "con", "de"])
     account, account_guessed = await resolve_account_by_keyword(session, user, account_keyword)
@@ -56,7 +57,7 @@ async def parse_message(session: AsyncSession, user: User, message: str) -> Chat
             destination_account_id=destination_account.id if destination_account else None,
         )
 
-    return ChatDraft(
+    draft = ChatDraft(
         amount=amount,
         currency=currency,
         account_keyword=account_keyword,
@@ -72,6 +73,99 @@ async def parse_message(session: AsyncSession, user: User, message: str) -> Chat
         or category_guessed
         or ambiguous_destination,
         occurred_at=datetime.now(UTC),
+    )
+
+    await purge_expired_drafts(session, user.id)
+    draft_session = ChatDraftSession(
+        user_id=user.id,
+        status=DraftStatus.PENDING,
+        payload=draft.model_dump(mode="json"),
+        source_message=message.strip(),
+        expires_at=datetime.now(UTC) + timedelta(hours=get_settings().chat_draft_ttl_hours),
+    )
+    session.add(draft_session)
+    await session.commit()
+    await session.refresh(draft_session)
+    return draft_session
+
+
+async def purge_expired_drafts(session: AsyncSession, user_id: UUID) -> None:
+    await session.execute(
+        delete(ChatDraftSession).where(
+            ChatDraftSession.user_id == user_id,
+            ChatDraftSession.expires_at <= datetime.now(UTC),
+        )
+    )
+
+
+async def claim_draft(session: AsyncSession, user: User, draft_id: UUID) -> ChatDraftSession:
+    row = await session.scalar(select(ChatDraftSession).where(ChatDraftSession.id == draft_id))
+    if row is None or row.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Chat draft not found")
+    if row.status != DraftStatus.PENDING:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Chat draft already used")
+    if row.expires_at <= datetime.now(UTC):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Chat draft expired")
+
+    result = await session.execute(
+        update(ChatDraftSession)
+        .where(
+            ChatDraftSession.id == draft_id,
+            ChatDraftSession.user_id == user.id,
+            ChatDraftSession.status == DraftStatus.PENDING,
+            ChatDraftSession.expires_at > datetime.now(UTC),
+        )
+        .values(status=DraftStatus.CONFIRMED)
+    )
+    if result.rowcount != 1:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Chat draft already used")
+    return row
+
+
+async def confirm_draft(
+    session: AsyncSession, user: User, draft_id: UUID, draft: ChatDraft
+):
+    await claim_draft(session, user, draft_id)
+
+    if draft.is_exchange or draft.transaction_type == "transfer":
+        if draft.account_id is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Transfer source account is required",
+            )
+        if draft.exchange_details is None or draft.exchange_details.destination_account_id is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Transfer destination account is required",
+            )
+        return await create_transfer(
+            session,
+            user.id,
+            TransferCreate(
+                source_account_id=draft.account_id,
+                destination_account_id=draft.exchange_details.destination_account_id,
+                source_amount=draft.amount,
+                rate_override=draft.exchange_details.rate_override,
+                description=draft.description,
+            ),
+        )
+
+    if draft.account_id is None or draft.category_id is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Account and category required"
+        )
+    return await create_transaction(
+        session,
+        user.id,
+        TransactionCreate(
+            account_id=draft.account_id,
+            category_id=draft.category_id,
+            amount=draft.amount,
+            currency=draft.currency,
+            type=TransactionType(draft.transaction_type),
+            description=draft.description,
+            occurred_at=draft.occurred_at,
+        ),
     )
 
 
@@ -129,46 +223,3 @@ async def resolve_category(
         if default_category is not None and default_category.type == transaction_type:
             return default_category, True
     return await get_fallback_category(session, transaction_type), True
-
-
-async def confirm_draft(session: AsyncSession, user: User, draft: ChatDraft):
-    if draft.is_exchange or draft.transaction_type == "transfer":
-        if draft.account_id is None:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Transfer source account is required",
-            )
-        if draft.exchange_details is None or draft.exchange_details.destination_account_id is None:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Transfer destination account is required",
-            )
-        return await create_transfer(
-            session,
-            user.id,
-            TransferCreate(
-                source_account_id=draft.account_id,
-                destination_account_id=draft.exchange_details.destination_account_id,
-                source_amount=draft.amount,
-                rate_override=draft.exchange_details.rate_override,
-                description=draft.description,
-            ),
-        )
-
-    if draft.account_id is None or draft.category_id is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Account and category required"
-        )
-    return await create_transaction(
-        session,
-        user.id,
-        TransactionCreate(
-            account_id=draft.account_id,
-            category_id=draft.category_id,
-            amount=draft.amount,
-            currency=draft.currency,
-            type=TransactionType(draft.transaction_type),
-            description=draft.description,
-            occurred_at=draft.occurred_at,
-        ),
-    )
